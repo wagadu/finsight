@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+openai
+python-dotenv
+pypdf
+python-multipart
+supabase
+psycopg2-binary
+pyspark
+numpy
+
