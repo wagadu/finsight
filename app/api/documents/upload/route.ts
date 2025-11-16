@@ -5,15 +5,9 @@ import { getAIServiceUrl } from '@/lib/ai-service'
 // We'll set a conservative 4MB limit to account for overhead
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB in bytes
 
-// Increase body size limit for this route (though Vercel may still enforce its own limits)
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '4.5mb',
-    },
-  },
-  maxDuration: 60, // 60 seconds max execution time
-}
+// Increase max duration for large file uploads (App Router)
+export const maxDuration = 60 // 60 seconds max execution time
+export const runtime = 'nodejs' // Use Node.js runtime
 
 export async function POST(request: NextRequest) {
   const AI_SERVICE_URL = getAIServiceUrl()
