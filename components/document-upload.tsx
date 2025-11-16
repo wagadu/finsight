@@ -16,10 +16,22 @@ export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
   const { toast } = useToast()
 
   const uploadFile = async (file: File) => {
+    // Validate file type
     if (!file.name.endsWith('.pdf')) {
       toast({
         title: "Invalid file type",
         description: "Only PDF files are supported",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validate file size (4MB limit for Vercel)
+    const MAX_SIZE = 4 * 1024 * 1024 // 4MB
+    if (file.size > MAX_SIZE) {
+      toast({
+        title: "File too large",
+        description: `Maximum file size is 4MB. Your file is ${(file.size / (1024 * 1024)).toFixed(2)}MB.`,
         variant: "destructive",
       })
       return
@@ -37,7 +49,8 @@ export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
       })
 
       if (!response.ok) {
-        throw new Error('Upload failed')
+        const errorData = await response.json().catch(() => ({ error: 'Upload failed' }))
+        throw new Error(errorData.error || 'Upload failed')
       }
 
       const data = await response.json()
@@ -49,9 +62,10 @@ export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
       
       onUploadComplete()
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'There was an error uploading your document'
       toast({
         title: "Upload failed",
-        description: "There was an error uploading your document",
+        description: errorMessage,
         variant: "destructive",
       })
     } finally {
