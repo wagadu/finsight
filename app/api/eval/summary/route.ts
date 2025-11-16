@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 
+import { getAIServiceUrl } from '@/lib/ai-service'
+
 export interface EvalSummary {
   totalQuestions: number
   successRate: number
@@ -7,7 +9,7 @@ export interface EvalSummary {
 }
 
 export async function GET() {
-  const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:8001"
+  const aiServiceUrl = getAIServiceUrl()
   
   try {
     const response = await fetch(`${aiServiceUrl}/eval/summary`, {

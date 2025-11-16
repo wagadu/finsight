@@ -21,7 +21,7 @@ type ChatResponse = {
   citations: Citation[]
 }
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8001'
+import { getAIServiceUrl } from '@/lib/ai-service'
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const AI_SERVICE_URL = getAIServiceUrl()
     // Forward request to Python FastAPI service
     const response = await fetch(`${AI_SERVICE_URL}/chat`, {
       method: 'POST',

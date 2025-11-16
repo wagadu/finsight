@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8001'
+import { getAIServiceUrl } from '@/lib/ai-service'
 
 export async function GET() {
   try {
+    const AI_SERVICE_URL = getAIServiceUrl()
     // Fetch documents from Python FastAPI service
     const response = await fetch(`${AI_SERVICE_URL}/documents`, {
       method: 'GET',

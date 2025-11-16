@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getAIServiceUrl } from '@/lib/ai-service'
 
 export async function POST(request: NextRequest) {
-  const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:8001"
+  const aiServiceUrl = getAIServiceUrl()
   
   try {
     const body = await request.json()

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8001'
+import { getAIServiceUrl } from '@/lib/ai-service'
 
 export async function POST(request: NextRequest) {
+  const AI_SERVICE_URL = getAIServiceUrl()
   try {
     const requestFormData = await request.formData()
     const file = requestFormData.get('file') as File | null
