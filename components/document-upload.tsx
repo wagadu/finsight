@@ -2,17 +2,32 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 import { Upload, Loader2 } from 'lucide-react'
 import { useState } from "react"
 import { useToast } from "@/hooks/use-toast"
+import { createClient } from '@supabase/supabase-js'
 
 interface DocumentUploadProps {
   onUploadComplete: () => void
 }
 
+// Initialize Supabase client
+const getSupabaseClient = () => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase credentials not configured')
+  }
+  
+  return createClient(supabaseUrl, supabaseAnonKey)
+}
+
 export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const { toast } = useToast()
 
   const uploadFile = async (file: File) => {
@@ -26,50 +41,135 @@ export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
       return
     }
 
-    // Validate file size (4MB limit for Vercel)
-    const MAX_SIZE = 4 * 1024 * 1024 // 4MB
+    // Validate file size (50MB limit for Supabase Storage)
+    const MAX_SIZE = 50 * 1024 * 1024 // 50MB
     if (file.size > MAX_SIZE) {
       toast({
         title: "File too large",
-        description: `Maximum file size is 4MB. Your file is ${(file.size / (1024 * 1024)).toFixed(2)}MB.`,
+        description: `Maximum file size is 50MB. Your file is ${(file.size / (1024 * 1024)).toFixed(2)}MB.`,
         variant: "destructive",
       })
       return
     }
 
     setIsUploading(true)
+    setUploadProgress(0)
     
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      // Check if Supabase is configured
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+        throw new Error('Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.')
+      }
+      
+      const supabase = getSupabaseClient()
+      
+      // Generate unique file path
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+      const filePath = fileName
 
-      const response = await fetch('/api/documents/upload', {
+      // Step 1: Upload to Supabase Storage
+      // Note: Standard upload doesn't support progress callbacks, so we simulate progress
+      setUploadProgress(10)
+      
+      // Simulate upload progress (since Supabase doesn't provide real-time progress)
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev < 70) {
+            return prev + 5 // Increment by 5% every 200ms up to 70%
+          }
+          return prev
+        })
+      }, 200)
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        })
+      
+      clearInterval(progressInterval)
+      setUploadProgress(70) // Set to 70% after upload completes
+
+      if (uploadError) {
+        console.error('Storage upload error:', uploadError)
+        throw new Error(uploadError.message || 'Failed to upload file to storage')
+      }
+
+      // Step 2: Call Edge Function to process the file
+      setUploadProgress(75)
+      
+      const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/upload-document`
+      
+      const response = await fetch(edgeFunctionUrl, {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          filePath: uploadData.path,
+          fileSize: file.size,
+        }),
       })
 
+      setUploadProgress(95)
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Upload failed' }))
-        throw new Error(errorData.error || 'Upload failed')
+        let errorMessage = 'Failed to process document'
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorData.detail || errorMessage
+          console.error('Edge Function error:', errorData)
+        } catch (e) {
+          const errorText = await response.text()
+          errorMessage = errorText || errorMessage
+          console.error('Edge Function error (text):', errorText)
+        }
+        
+        // Clean up: delete file from storage if processing failed
+        try {
+          await supabase.storage.from('documents').remove([filePath])
+        } catch (cleanupError) {
+          console.error('Failed to cleanup file:', cleanupError)
+        }
+        
+        throw new Error(errorMessage)
       }
 
       const data = await response.json()
+      setUploadProgress(100)
       
       toast({
         title: "Upload successful",
-        description: `${data.name} has been uploaded`,
+        description: `${data.name} has been uploaded and processed`,
       })
       
       onUploadComplete()
     } catch (error) {
+      console.error('Upload error:', error)
       const errorMessage = error instanceof Error ? error.message : 'There was an error uploading your document'
-      toast({
-        title: "Upload failed",
-        description: errorMessage,
-        variant: "destructive",
-      })
+      
+      // Provide helpful error message if Supabase is not configured
+      if (errorMessage.includes('Supabase') || errorMessage.includes('not configured')) {
+        toast({
+          title: "Configuration Error",
+          description: "Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file and restart the dev server.",
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "Upload failed",
+          description: errorMessage,
+          variant: "destructive",
+        })
+      }
     } finally {
       setIsUploading(false)
+      // Reset progress after a delay
+      setTimeout(() => setUploadProgress(0), 2000)
     }
   }
 
@@ -125,6 +225,17 @@ export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
           </p>
           {!isUploading && <p className="text-xs text-muted-foreground">or</p>}
         </div>
+
+        {/* Upload Progress */}
+        {isUploading && uploadProgress > 0 && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Uploading...</span>
+              <span>{Math.round(uploadProgress)}%</span>
+            </div>
+            <Progress value={uploadProgress} className="h-2" />
+          </div>
+        )}
         
         <Button className="w-full" variant="outline" disabled={isUploading} asChild={!isUploading}>
           <label className={isUploading ? "" : "cursor-pointer"}>

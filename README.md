@@ -11,6 +11,8 @@ FinSight Copilot allows users to upload financial documents (PDFs), chat with th
 - **Frontend**: Next.js 16 (App Router), TypeScript, Tailwind CSS, shadcn/ui
 - **Backend**: Next.js API Routes (BFF layer) → Python FastAPI microservice
 - **Database**: PostgreSQL via Supabase with pgvector for embeddings
+- **Storage**: Supabase Storage for large file uploads (bypasses Vercel 4.5MB limit)
+- **Edge Functions**: Supabase Edge Functions for file processing
 - **AI/ML**: OpenAI models for LLM chat + embeddings for RAG
 - **Data Processing**: PySpark for evaluation pipelines (planned)
 
@@ -54,10 +56,17 @@ backend/
 ├── main.py              # FastAPI service with AI logic, document registry, and evaluation endpoints
 ├── evaluation_pipeline.py  # PySpark evaluation pipeline for scalable metric computation
 ├── schema.sql           # PostgreSQL schema (documents, chunks, evaluation tables)
+├── storage_setup.sql    # Supabase Storage bucket and RLS policies
 ├── requirements.txt     # Python dependencies
 ├── SUPABASE_SETUP.md    # Supabase setup guide
 ├── RAG_SETUP.md        # RAG setup guide
-└── EVALUATION_SETUP.md  # Evaluation pipeline setup guide
+├── EVALUATION_SETUP.md  # Evaluation pipeline setup guide
+└── EDGE_FUNCTION_SETUP.md  # Edge Function setup guide for large file uploads
+
+supabase/
+└── functions/
+    ├── upload-document/  # Edge Function for processing uploaded documents
+    └── _shared/         # Shared utilities (CORS headers)
 
 components/
 ├── chat-input.tsx      # Message input with suggestions
@@ -95,9 +104,12 @@ A separate `backend/` FastAPI service (`backend/main.py`) that:
 ### Current Implementation
 
 #### Document Management
-- **PostgreSQL/Supabase storage**: Documents are stored in Supabase (PostgreSQL)
+- **Supabase Storage**: Files are uploaded directly to Supabase Storage (bypasses Vercel's 4.5MB limit, supports up to 50MB)
+- **Edge Function processing**: Supabase Edge Function handles file processing and calls Python backend
+- **PostgreSQL/Supabase storage**: Document metadata and content are stored in Supabase (PostgreSQL)
 - **PDF parsing**: PDFs are parsed and text content is extracted and stored
 - **RAG with embeddings**: Documents are automatically chunked and embedded using OpenAI embeddings
+- **Upload progress**: Real-time upload progress tracking for better UX
 - **Vector search**: Semantic search finds relevant document chunks using cosine similarity
 - **Endpoints**: `POST /documents` (create with PDF parsing and chunking), `GET /documents` (list all)
 
@@ -179,11 +191,21 @@ SUPABASE_KEY=your_supabase_anon_key_here
 
 1. **Create a Supabase project** at https://supabase.com
 2. **Run the schema SQL**: In your Supabase dashboard, go to SQL Editor and run the SQL from `backend/schema.sql`
-3. **Get your credentials**: 
+3. **Set up Storage**: Run the SQL from `backend/storage_setup.sql` to create the documents bucket
+4. **Get your credentials**: 
    - Go to Project Settings → API
    - Copy the "Project URL" (SUPABASE_URL)
-   - Copy the "anon public" key (SUPABASE_KEY)
-4. **Add to `.env`**: Add both values to your `backend/.env` file
+   - Copy the "anon public" key (SUPABASE_KEY) - use this for `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - Copy the "service_role" key (SUPABASE_SERVICE_ROLE_KEY) - keep this secret!
+5. **Add to `.env`**: Add all values to your `backend/.env` file
+6. **Add to `.env.local`**: Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to your Next.js `.env.local` file
+
+#### Setting up Supabase Edge Function
+
+See `backend/EDGE_FUNCTION_SETUP.md` for detailed instructions on:
+- Deploying the Edge Function
+- Setting environment variables
+- Testing large file uploads
 
 ### Next.js BFF
 

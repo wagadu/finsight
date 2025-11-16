@@ -1,0 +1,10 @@
+# Supabase Edge Functions configuration
+# This file configures the Supabase CLI for local development
+
+[project]
+# Your Supabase project reference ID (optional, can be set via CLI)
+
+[functions.upload-document]
+# Configuration for the upload-document Edge Function
+# No special configuration needed - uses environment variables
+
