@@ -109,7 +109,7 @@ export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+          className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 md:p-6 text-center transition-colors ${
             isDragging
               ? "border-primary bg-primary/5"
               : "border-border bg-muted/50"

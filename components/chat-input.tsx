@@ -43,10 +43,10 @@ export function ChatInput({
   }
 
   return (
-    <div className="border-t border-border bg-muted/30 p-4 space-y-3">
-      {/* Suggestion Chips */}
+    <div className="border-t border-border bg-muted/30 p-3 md:p-4 space-y-2 md:space-y-3">
+      {/* Suggestion Chips - Hide on very small screens */}
       {suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="hidden sm:flex flex-wrap gap-2">
           {suggestions.map((suggestion, index) => (
             <Button
               key={index}
@@ -75,16 +75,16 @@ export function ChatInput({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="min-h-[44px] max-h-[120px] resize-none"
+          className="min-h-[44px] max-h-[100px] md:max-h-[120px] resize-none text-sm md:text-base"
           rows={1}
           disabled={disabled}
         />
-        <Button type="submit" size="icon" disabled={!input.trim() || disabled}>
+        <Button type="submit" size="icon" disabled={!input.trim() || disabled} className="h-[44px] w-[44px] flex-shrink-0">
           <Send className="h-4 w-4" />
           <span className="sr-only">Send message</span>
         </Button>
       </form>
-      <p className="text-xs text-muted-foreground">
+      <p className="hidden md:block text-xs text-muted-foreground">
         Press Enter to send, Shift+Enter for new line
       </p>
     </div>

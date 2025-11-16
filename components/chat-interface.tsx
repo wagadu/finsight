@@ -95,9 +95,9 @@ export function ChatInterface({ documentName, documentId }: ChatInterfaceProps) 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Document Header */}
-      <div className="flex-shrink-0 border-b border-border bg-muted/30 px-6 py-4">
-        <h2 className="text-lg font-semibold text-foreground">{documentName}</h2>
-        <p className="text-sm text-muted-foreground">
+      <div className="flex-shrink-0 border-b border-border bg-muted/30 px-4 md:px-6 py-3 md:py-4">
+        <h2 className="text-base md:text-lg font-semibold text-foreground truncate">{documentName}</h2>
+        <p className="text-xs md:text-sm text-muted-foreground">
           Ask questions about this document
         </p>
       </div>

@@ -68,7 +68,7 @@ export function DocumentList({ selectedDocument, onSelectDocument, refreshTrigge
         <CardTitle className="text-base">Documents</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <ScrollArea className="h-[calc(100vh-24rem)]">
+        <ScrollArea className="h-[calc(100vh-20rem)] md:h-[calc(100vh-24rem)]">
           {isLoading ? (
             <div className="flex items-center justify-center p-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

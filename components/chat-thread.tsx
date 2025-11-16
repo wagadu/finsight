@@ -39,9 +39,9 @@ export function ChatThread({ messages }: ChatThreadProps) {
   return (
     <div 
       ref={scrollContainerRef}
-      className="h-full overflow-y-auto px-6 py-4"
+      className="h-full overflow-y-auto px-4 md:px-6 py-3 md:py-4"
     >
-      <div className="space-y-4">
+      <div className="space-y-3 md:space-y-4">
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
@@ -57,7 +57,7 @@ function MessageBubble({ message }: { message: Message }) {
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[80%] space-y-2 ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[85%] md:max-w-[80%] space-y-2 ${isUser ? "items-end" : "items-start"}`}>
         <div
           className={`rounded-lg px-4 py-3 ${
             isUser

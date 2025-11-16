@@ -11,6 +11,12 @@ export const metadata: Metadata = {
   title: 'FinSight Copilot - Financial Intelligence Platform',
   description: 'Your intelligent financial analysis assistant for data-driven insights',
   generator: 'v0.app',
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 5,
+    userScalable: true,
+  },
   icons: {
     icon: [
       {

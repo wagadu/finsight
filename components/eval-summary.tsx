@@ -129,11 +129,11 @@ export function EvalSummary({ documentId }: EvalSummaryProps) {
   }
 
   return (
-    <Card className="border-accent/50 bg-accent/5 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <Card className="border-accent/50 bg-accent/5 p-2 md:p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <svg
-            className="h-4 w-4 text-accent"
+            className="h-3 w-3 md:h-4 md:w-4 text-accent flex-shrink-0"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -145,24 +145,24 @@ export function EvalSummary({ documentId }: EvalSummaryProps) {
               d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <h4 className="text-xs font-semibold text-foreground">Evaluation</h4>
+          <h4 className="text-xs font-semibold text-foreground truncate">Evaluation</h4>
         </div>
         <Button
           size="sm"
           variant="outline"
           onClick={handleRunEvaluation}
           disabled={running || !documentId}
-          className="h-6 px-2 text-xs"
+          className="h-6 px-2 text-xs flex-shrink-0"
         >
           {running ? (
             <>
               <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-              Running...
+              <span className="hidden sm:inline">Running...</span>
             </>
           ) : (
             <>
               <Play className="mr-1 h-3 w-3" />
-              Run
+              <span className="hidden sm:inline">Run</span>
             </>
           )}
         </Button>
