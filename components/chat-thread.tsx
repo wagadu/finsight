@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ChevronDown, ChevronRight, FileText, Loader2 } from 'lucide-react'
 import { useState, useEffect, useRef } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 export interface Evidence {
   label: string
@@ -70,8 +72,55 @@ function MessageBubble({ message }: { message: Message }) {
               <Loader2 className="h-4 w-4 animate-spin" />
               <p className="text-sm leading-relaxed">{message.content}</p>
             </div>
-          ) : (
+          ) : isUser ? (
             <p className="text-sm leading-relaxed">{message.content}</p>
+          ) : (
+            <div className="text-sm leading-relaxed markdown-content">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  ul: ({ children }) => <ul className="list-disc mb-2 space-y-1 ml-4 pl-2">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal mb-2 space-y-1 ml-4 pl-2">{children}</ol>,
+                  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                  em: ({ children }) => <em className="italic">{children}</em>,
+                  code: ({ className, children, ...props }) => {
+                    const isInline = !className
+                    return isInline ? (
+                      <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono" {...props}>
+                        {children}
+                      </code>
+                    ) : (
+                      <code className={className} {...props}>
+                        {children}
+                      </code>
+                    )
+                  },
+                  pre: ({ children }) => (
+                    <pre className="bg-muted p-3 rounded-md overflow-x-auto mb-2 border border-border">
+                      {children}
+                    </pre>
+                  ),
+                  h1: ({ children }) => <h1 className="text-lg font-semibold mb-2 mt-3 first:mt-0">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-base font-semibold mb-2 mt-3 first:mt-0">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                  blockquote: ({ children }) => (
+                    <blockquote className="border-l-4 border-border pl-4 italic my-2 text-muted-foreground">
+                      {children}
+                    </blockquote>
+                  ),
+                  a: ({ children, href }) => (
+                    <a href={href} className="text-primary underline underline-offset-4 hover:text-primary/80" target="_blank" rel="noopener noreferrer">
+                      {children}
+                    </a>
+                  ),
+                  hr: () => <hr className="my-3 border-border" />,
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
           )}
         </div>
 
