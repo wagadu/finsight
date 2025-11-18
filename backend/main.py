@@ -5,11 +5,13 @@ from typing import List, Optional
 from datetime import datetime
 from uuid import uuid4, UUID
 import os
+import json
 from dotenv import load_dotenv
 from openai import OpenAI
 from pypdf import PdfReader
 import io
 from supabase import create_client, Client
+from evaluation_pipeline import process_evaluation_run
 
 # Load environment variables from .env file
 load_dotenv()
@@ -40,6 +42,20 @@ if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 else:
     print("Warning: SUPABASE_URL and SUPABASE_KEY not set. Database operations will fail.")
+
+# Model configuration for Equity Analyst Copilot
+BASE_MODEL = os.getenv("BASE_MODEL", "gpt-4o-mini")
+FT_MODEL = os.getenv("FT_MODEL", "gpt-4o-mini")  # Default to base if not set
+DISTILLED_MODEL = os.getenv("DISTILLED_MODEL", "gpt-4o-mini")  # Default to base if not set
+
+def get_model_name(model_key: str) -> str:
+    """Map model key to actual model name."""
+    model_map = {
+        "baseline": BASE_MODEL,
+        "ft": FT_MODEL,
+        "distilled": DISTILLED_MODEL
+    }
+    return model_map.get(model_key, BASE_MODEL)
 
 
 # Helper functions for RAG
@@ -405,13 +421,40 @@ INSTRUCTIONS:
     
     # Call OpenAI API
     try:
+        start_time = datetime.now()
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=openai_messages,
             temperature=0.2
         )
+        end_time = datetime.now()
+        response_time_ms = int((end_time - start_time).total_seconds() * 1000)
         
         answer = response.choices[0].message.content or ""
+        
+        # Log chat interaction (async, don't block response)
+        if supabase and user_query:
+            try:
+                # Convert citations to JSONB format
+                citations_json = []
+                for citation in citations:
+                    citations_json.append({
+                        "id": citation.id,
+                        "label": citation.label,
+                        "excerpt": citation.excerpt
+                    })
+                
+                supabase.table("chat_logs").insert({
+                    "document_id": request.documentId,
+                    "user_message": user_query,
+                    "assistant_message": answer,
+                    "model_name": "gpt-4o-mini",
+                    "citations": citations_json,
+                    "response_time_ms": response_time_ms
+                }).execute()
+            except Exception as log_error:
+                # Don't fail the request if logging fails
+                print(f"Warning: Failed to log chat interaction: {str(log_error)}")
         
         return ChatResponse(
             answer=answer,
@@ -729,6 +772,9 @@ async def run_evaluation(request: EvalRunRequest):
         total_questions = len(eval_questions_list)
         successful_answers = 0
         
+        # Collect evaluation data for PySpark processing
+        evaluation_data = []
+        
         # Run each question through the RAG system
         for eval_q in eval_questions_list:
             question = eval_q["question"]
@@ -823,6 +869,18 @@ Provide a clear, accurate answer."""
                     "response_time_ms": response_time_ms
                 }).execute()
                 
+                # Collect data for PySpark processing
+                evaluation_data.append({
+                    "evaluation_run_id": run_id,
+                    "document_id": request.documentId,
+                    "question": question,
+                    "expected_answer": expected_answer,
+                    "model_answer": model_answer,
+                    "is_correct": is_correct,
+                    "similarity_score": similarity_score,
+                    "response_time_ms": response_time_ms
+                })
+                
             except Exception as e:
                 print(f"Error evaluating question '{question}': {str(e)}")
                 # Store failed question
@@ -834,23 +892,61 @@ Provide a clear, accurate answer."""
                     "is_correct": False,
                     "response_time_ms": 0
                 }).execute()
+                
+                # Add failed question to evaluation data
+                evaluation_data.append({
+                    "evaluation_run_id": run_id,
+                    "document_id": request.documentId,
+                    "question": question,
+                    "expected_answer": None,
+                    "model_answer": None,
+                    "is_correct": False,
+                    "similarity_score": None,
+                    "response_time_ms": 0
+                })
+        
+        # Compute metrics using PySpark pipeline (with fallback to basic Python)
+        print(f"Computing metrics for {len(evaluation_data)} evaluation records using PySpark pipeline...")
+        computed_metrics = process_evaluation_run(run_id, evaluation_data, use_pyspark=True)
+        
+        # Extract metrics from PySpark computation
+        total_questions_computed = computed_metrics.get("total_questions", total_questions)
+        success_rate = computed_metrics.get("success_rate", 0.0)
+        successful_answers_computed = computed_metrics.get("successful_answers", successful_answers)
+        avg_response_time_ms = computed_metrics.get("avg_response_time_ms", 0)
+        avg_similarity_score = computed_metrics.get("avg_similarity_score", 0.0)
+        
+        # Use computed values (PySpark may have more accurate counts)
+        final_total_questions = total_questions_computed if total_questions_computed > 0 else total_questions
+        final_successful_answers = successful_answers_computed if successful_answers_computed >= 0 else successful_answers
+        final_success_rate = success_rate if success_rate >= 0 else (final_successful_answers / final_total_questions if final_total_questions > 0 else 0.0)
         
         # Update evaluation run with results
-        success_rate = successful_answers / total_questions if total_questions > 0 else 0.0
-        
         supabase.table("evaluation_runs").update({
             "status": "completed",
-            "total_questions": total_questions,
-            "successful_answers": successful_answers,
+            "total_questions": final_total_questions,
+            "successful_answers": final_successful_answers,
             "completed_at": datetime.now().isoformat()
         }).eq("id", run_id).execute()
         
-        # Store metrics (can be enhanced by PySpark pipeline)
+        # Store metrics computed by PySpark pipeline
         metrics = [
-            {"metric_name": "accuracy", "metric_value": success_rate, "metric_type": "percentage"},
-            {"metric_name": "total_questions", "metric_value": float(total_questions), "metric_type": "count"},
-            {"metric_name": "successful_answers", "metric_value": float(successful_answers), "metric_type": "count"}
+            {"metric_name": "accuracy", "metric_value": final_success_rate, "metric_type": "percentage"},
+            {"metric_name": "success_rate", "metric_value": final_success_rate, "metric_type": "percentage"},
+            {"metric_name": "total_questions", "metric_value": float(final_total_questions), "metric_type": "count"},
+            {"metric_name": "successful_answers", "metric_value": float(final_successful_answers), "metric_type": "count"},
+            {"metric_name": "avg_response_time_ms", "metric_value": float(avg_response_time_ms), "metric_type": "time_ms"},
+            {"metric_name": "avg_similarity_score", "metric_value": float(avg_similarity_score), "metric_type": "score"}
         ]
+        
+        # Add document-level metrics if available
+        if "questions_by_document" in computed_metrics:
+            for doc_id, question_count in computed_metrics["questions_by_document"].items():
+                metrics.append({
+                    "metric_name": f"questions_by_document_{doc_id}",
+                    "metric_value": float(question_count),
+                    "metric_type": "count"
+                })
         
         for metric in metrics:
             supabase.table("evaluation_metrics").upsert({
@@ -860,12 +956,16 @@ Provide a clear, accurate answer."""
                 "metric_type": metric["metric_type"]
             }, on_conflict="evaluation_run_id,metric_name").execute()
         
+        print(f"Evaluation completed: {final_successful_answers}/{final_total_questions} successful ({(final_success_rate*100):.1f}%)")
+        
         return {
             "runId": run_id,
             "status": "completed",
-            "totalQuestions": total_questions,
-            "successfulAnswers": successful_answers,
-            "successRate": round(success_rate, 2)
+            "totalQuestions": final_total_questions,
+            "successfulAnswers": final_successful_answers,
+            "successRate": round(final_success_rate, 2),
+            "avgResponseTimeMs": int(avg_response_time_ms),
+            "avgSimilarityScore": round(avg_similarity_score, 3) if avg_similarity_score else None
         }
         
     except Exception as e:
@@ -879,5 +979,335 @@ Provide a clear, accurate answer."""
         raise HTTPException(
             status_code=500,
             detail=f"Failed to run evaluation: {str(e)}"
+        )
+
+
+# Pydantic models for Equity Analyst Copilot
+class EquityAnalystRunRequest(BaseModel):
+    documentId: str
+    modelKey: str  # 'baseline', 'ft', or 'distilled'
+
+
+class EquityAnalystSectionResponse(BaseModel):
+    id: str
+    section_type: str
+    question_text: str
+    model_answer: str
+    citations: List[dict] = []
+    response_time_ms: Optional[int] = None
+
+
+class EquityAnalystRunResponse(BaseModel):
+    runId: str
+    status: str
+    sections: List[EquityAnalystSectionResponse]
+
+
+# Fixed checklist of analyst questions
+EQUITY_ANALYST_QUESTIONS = [
+    {
+        "section_type": "revenue_drivers",
+        "question": "What are the main revenue drivers for this company? Identify the key products, services, or business segments that generate the most revenue."
+    },
+    {
+        "section_type": "key_risks",
+        "question": "What are the key risks mentioned in this document? Include both operational and financial risks."
+    },
+    {
+        "section_type": "unit_economics",
+        "question": "What are the unit economics and margins? Provide specific numbers for gross margin, operating margin, and net margin if available."
+    },
+    {
+        "section_type": "investment_thesis",
+        "question": "Provide a 3-bullet investment thesis (bullish or bearish) based on the information in this document. Be concise and specific."
+    },
+    {
+        "section_type": "financial_trends",
+        "question": "What are the notable financial trends compared to the previous year? Highlight significant changes in revenue, expenses, or profitability."
+    }
+]
+
+
+@app.post("/equity-analyst/run", response_model=EquityAnalystRunResponse)
+async def run_equity_analyst(request: EquityAnalystRunRequest):
+    """
+    Run the Equity Analyst Copilot analysis on a document.
+    Executes a fixed checklist of analyst questions and stores results.
+    """
+    if not openai_client or not supabase:
+        raise HTTPException(
+            status_code=500,
+            detail="OpenAI client or database not configured"
+        )
+    
+    # Validate model key
+    if request.modelKey not in ["baseline", "ft", "distilled"]:
+        raise HTTPException(
+            status_code=400,
+            detail="modelKey must be 'baseline', 'ft', or 'distilled'"
+        )
+    
+    model_name = get_model_name(request.modelKey)
+    run_id = str(uuid4())
+    
+    try:
+        # Create equity analyst run record
+        run_result = supabase.table("equity_analyst_runs").insert({
+            "id": run_id,
+            "document_id": request.documentId,
+            "model_name": model_name,
+            "run_type": request.modelKey,
+            "status": "running"
+        }).execute()
+        
+        if not run_result.data:
+            raise HTTPException(status_code=500, detail="Failed to create equity analyst run")
+        
+        sections = []
+        
+        # Process each question in the checklist
+        for question_config in EQUITY_ANALYST_QUESTIONS:
+            section_type = question_config["section_type"]
+            question = question_config["question"]
+            
+            try:
+                start_time = datetime.now()
+                
+                # Retrieve relevant chunks
+                relevant_chunks = await retrieve_relevant_chunks(
+                    request.documentId,
+                    question,
+                    top_k=8
+                )
+                
+                # Build document context
+                document_context = ""
+                citations_list = []
+                
+                if relevant_chunks:
+                    context_parts = []
+                    for idx, chunk in enumerate(relevant_chunks):
+                        page_info = f"[Page {chunk['page_number']}]" if chunk.get('page_number') else "[Document]"
+                        context_parts.append(f"{page_info}\n{chunk['content']}")
+                        
+                        # Build citation
+                        citations_list.append({
+                            "id": chunk.get("id", f"chunk-{idx}"),
+                            "chunk_id": chunk.get("id"),
+                            "page_number": chunk.get("page_number"),
+                            "excerpt": chunk["content"][:300] + "..." if len(chunk["content"]) > 300 else chunk["content"],
+                            "label": f"Page {chunk['page_number']}" if chunk.get('page_number') else "Document"
+                        })
+                    
+                    document_context = "\n\n---\n\n".join(context_parts)
+                
+                # Prepare system message
+                system_content = f"""You are an Equity Analyst Copilot, an AI assistant specialized in analyzing financial documents and annual reports.
+
+You are analyzing a specific document. Below are the most relevant sections extracted from that document:
+
+{document_context}
+
+INSTRUCTIONS:
+1. Answer the question using ONLY the information provided in the document sections above
+2. Be specific and cite page numbers when available
+3. For financial data, extract actual numbers and figures
+4. For the investment thesis, clearly state whether it's bullish or bearish
+5. Be concise and professional, using equity analyst terminology
+6. If information is not available in the provided sections, state that explicitly"""
+                
+                # Call OpenAI API
+                response = openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": question}
+                    ],
+                    temperature=0.2
+                )
+                
+                model_answer = response.choices[0].message.content or ""
+                end_time = datetime.now()
+                response_time_ms = int((end_time - start_time).total_seconds() * 1000)
+                
+                # Store section in database
+                section_result = supabase.table("equity_analyst_sections").insert({
+                    "run_id": run_id,
+                    "section_type": section_type,
+                    "question_text": question,
+                    "model_answer": model_answer,
+                    "citations": citations_list,
+                    "response_time_ms": response_time_ms,
+                    "is_gold": False
+                }).execute()
+                
+                if section_result.data:
+                    section_id = section_result.data[0]["id"]
+                    sections.append(EquityAnalystSectionResponse(
+                        id=section_id,
+                        section_type=section_type,
+                        question_text=question,
+                        model_answer=model_answer,
+                        citations=citations_list,
+                        response_time_ms=response_time_ms
+                    ))
+                
+            except Exception as e:
+                print(f"Error processing section {section_type}: {str(e)}")
+                # Continue with other sections even if one fails
+                continue
+        
+        # Update run status
+        supabase.table("equity_analyst_runs").update({
+            "status": "completed",
+            "completed_at": datetime.now().isoformat()
+        }).eq("id", run_id).execute()
+        
+        return EquityAnalystRunResponse(
+            runId=run_id,
+            status="completed",
+            sections=sections
+        )
+        
+    except Exception as e:
+        print(f"Error running equity analyst copilot: {str(e)}")
+        # Mark run as failed
+        if 'run_id' in locals():
+            supabase.table("equity_analyst_runs").update({
+                "status": "failed"
+            }).eq("id", run_id).execute()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to run equity analyst copilot: {str(e)}"
+        )
+
+
+@app.get("/export-finetune-dataset")
+async def export_finetune_dataset(
+    model_name: Optional[str] = None,
+    is_gold_only: bool = False,
+    limit: Optional[int] = None
+):
+    """
+    Export fine-tuning dataset in OpenAI format (JSONL).
+    Reads from equity_analyst_sections and optionally chat_logs.
+    """
+    if not supabase:
+        raise HTTPException(
+            status_code=500,
+            detail="Database connection not configured"
+        )
+    
+    try:
+        # First, get run IDs if filtering by model_name
+        run_ids = None
+        if model_name:
+            runs_result = supabase.table("equity_analyst_runs").select("id").eq("model_name", model_name).execute()
+            if runs_result.data:
+                run_ids = [run["id"] for run in runs_result.data]
+            else:
+                # No runs with this model, return empty dataset
+                run_ids = []
+        
+        # Build query for equity_analyst_sections
+        query = supabase.table("equity_analyst_sections").select(
+            "id, run_id, section_type, question_text, model_answer, citations"
+        )
+        
+        if is_gold_only:
+            query = query.eq("is_gold", True)
+        
+        if run_ids is not None:
+            if len(run_ids) == 0:
+                # No matching runs, return empty
+                result_data = []
+            else:
+                query = query.in_("run_id", run_ids)
+                result = query.execute()
+                result_data = result.data if result.data else []
+        else:
+            result = query.execute()
+            result_data = result.data if result.data else []
+        
+        # Get run information for each section
+        if result_data:
+            run_ids_to_fetch = list(set([section["run_id"] for section in result_data]))
+            runs_result = supabase.table("equity_analyst_runs").select("id, model_name, run_type").in_("id", run_ids_to_fetch).execute()
+            runs_dict = {run["id"]: run for run in (runs_result.data if runs_result.data else [])}
+            
+            # Add run info to each section
+            for section in result_data:
+                run_info = runs_dict.get(section["run_id"], {})
+                section["model_name"] = run_info.get("model_name")
+                section["run_type"] = run_info.get("run_type")
+        
+        if limit and result_data:
+            result_data = result_data[:limit]
+        
+        examples = []
+        
+        for row in result_data:
+            question = row["question_text"]
+            answer = row["model_answer"]
+            citations = row.get("citations", [])
+            
+            # Build context from citations
+            context_parts = []
+            if citations:
+                for citation in citations:
+                    page_info = f"[Page {citation.get('page_number', 'N/A')}]" if citation.get('page_number') else "[Document]"
+                    excerpt = citation.get("excerpt", "")
+                    context_parts.append(f"{page_info}: {excerpt[:200]}")
+            
+            context = "\n".join(context_parts) if context_parts else ""
+            
+            # Format question with minimal context
+            user_content = question
+            if context:
+                user_content = f"{question}\n\nRelevant context:\n{context}"
+            
+            # Create fine-tuning example
+            example = {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are an Equity Analyst Copilot, an AI assistant specialized in analyzing financial documents and annual reports. Answer questions based on the provided document context."
+                    },
+                    {
+                        "role": "user",
+                        "content": user_content
+                    },
+                    {
+                        "role": "assistant",
+                        "content": answer
+                    }
+                ]
+            }
+            
+            examples.append(example)
+        
+        # Convert to JSONL format (one JSON object per line)
+        jsonl_lines = []
+        for example in examples:
+            jsonl_lines.append(json.dumps(example))
+        
+        jsonl_content = "\n".join(jsonl_lines)
+        
+        # Return as downloadable file
+        from fastapi.responses import Response
+        return Response(
+            content=jsonl_content,
+            media_type="application/x-ndjson",
+            headers={
+                "Content-Disposition": f"attachment; filename=finetune_dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
+            }
+        )
+        
+    except Exception as e:
+        print(f"Error exporting fine-tuning dataset: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to export dataset: {str(e)}"
         )
 

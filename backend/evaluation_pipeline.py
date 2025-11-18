@@ -3,12 +3,12 @@ PySpark-based evaluation pipeline for FinSight RAG system.
 
 This module processes evaluation data using PySpark for scalable computation.
 In production, this would run as a separate Spark job that:
-1. Reads evaluation questions and answers from PostgreSQL
+1. Reads evaluation questions and answers from PostgreSQL/Supabase
 2. Computes metrics (accuracy, semantic similarity, response times)
-3. Writes aggregated metrics back to PostgreSQL
+3. Writes aggregated metrics back to PostgreSQL/Supabase
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 import os
 
@@ -89,7 +89,7 @@ def compute_metrics_with_pyspark(
                 count("*").alias("question_count")
             ).collect()
             metrics["questions_by_document"] = {
-                row["document_id"]: row["question_count"] 
+                (row["document_id"] or "unknown"): row["question_count"] 
                 for row in questions_by_doc
             }
         
@@ -139,6 +139,84 @@ def compute_metrics_basic(evaluation_data: List[Dict]) -> Dict:
     }
 
 
+def read_evaluation_data_from_db(
+    supabase_client: Any,
+    run_id: str
+) -> List[Dict]:
+    """
+    Read evaluation data from Supabase/PostgreSQL for a given run_id.
+    
+    Args:
+        supabase_client: Supabase client instance
+        run_id: Evaluation run ID
+    
+    Returns:
+        List of evaluation records
+    """
+    try:
+        # Fetch all evaluation questions for this run
+        result = supabase_client.table("evaluation_questions").select(
+            "id, evaluation_run_id, document_id, question, expected_answer, "
+            "model_answer, is_correct, similarity_score, response_time_ms"
+        ).eq("evaluation_run_id", run_id).execute()
+        
+        if not result.data:
+            return []
+        
+        # Convert to list of dicts
+        evaluation_data = []
+        for row in result.data:
+            evaluation_data.append({
+                "evaluation_run_id": row.get("evaluation_run_id"),
+                "document_id": row.get("document_id"),
+                "question": row.get("question"),
+                "expected_answer": row.get("expected_answer"),
+                "model_answer": row.get("model_answer"),
+                "is_correct": row.get("is_correct"),
+                "similarity_score": row.get("similarity_score"),
+                "response_time_ms": row.get("response_time_ms", 0)
+            })
+        
+        return evaluation_data
+    except Exception as e:
+        print(f"Error reading evaluation data from database: {str(e)}")
+        return []
+
+
+def process_evaluation_run_from_db(
+    run_id: str,
+    supabase_client: Any,
+    use_pyspark: bool = True
+) -> Dict:
+    """
+    Process an evaluation run by reading data from database and computing metrics.
+    Useful for reprocessing existing runs or batch processing.
+    
+    Args:
+        run_id: Evaluation run ID
+        supabase_client: Supabase client instance
+        use_pyspark: Whether to use PySpark (if available)
+    
+    Returns:
+        Dictionary of computed metrics
+    """
+    # Read data from database
+    evaluation_data = read_evaluation_data_from_db(supabase_client, run_id)
+    
+    if not evaluation_data:
+        print(f"No evaluation data found for run_id: {run_id}")
+        return {
+            "total_questions": 0,
+            "success_rate": 0.0,
+            "successful_answers": 0,
+            "avg_response_time_ms": 0,
+            "avg_similarity_score": 0.0
+        }
+    
+    # Process using PySpark pipeline
+    return process_evaluation_run(run_id, evaluation_data, use_pyspark)
+
+
 def process_evaluation_run(
     run_id: str,
     evaluation_data: List[Dict],
@@ -149,7 +227,7 @@ def process_evaluation_run(
     
     Args:
         run_id: Evaluation run ID
-        evaluation_data: List of evaluation records
+        evaluation_data: List of evaluation records (can be empty if reading from DB)
         use_pyspark: Whether to use PySpark (if available)
     
     Returns:

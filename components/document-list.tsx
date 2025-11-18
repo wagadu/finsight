@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FileText, Loader2 } from 'lucide-react'
 import { useEffect, useState } from "react"
 
@@ -63,12 +64,12 @@ export function DocumentList({ selectedDocument, onSelectDocument, refreshTrigge
   }, [refreshTrigger])
 
   return (
-    <Card className="flex-1">
-      <CardHeader>
+    <Card className="flex-1 w-full max-w-full overflow-hidden flex flex-col">
+      <CardHeader className="flex-shrink-0">
         <CardTitle className="text-base">Documents</CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
-        <ScrollArea className="h-[calc(100vh-20rem)] md:h-[calc(100vh-24rem)]">
+      <CardContent className="p-0 overflow-hidden flex-1 min-h-0">
+        <ScrollArea className="h-full">
           {isLoading ? (
             <div className="flex items-center justify-center p-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -82,24 +83,32 @@ export function DocumentList({ selectedDocument, onSelectDocument, refreshTrigge
               No documents yet
             </div>
           ) : (
-            <div className="space-y-1 p-3">
+            <div className="space-y-1 p-3 w-full">
               {documents.map((doc) => (
-                <button
-                  key={doc.id}
-                  onClick={() => onSelectDocument(doc.id, doc.name)}
-                  className={`flex w-full items-start gap-3 rounded-md p-3 text-left transition-colors hover:bg-accent ${
-                    selectedDocument === doc.id ? "bg-accent" : ""
-                  }`}
-                >
-                  <FileText className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{doc.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDate(doc.uploadedAt)}
-                      {doc.pageCount && ` • ${doc.pageCount} pages`}
-                    </p>
-                  </div>
-                </button>
+                <Tooltip key={doc.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => onSelectDocument(doc.id, doc.name)}
+                      className={`flex w-full items-start gap-3 rounded-md p-3 text-left transition-colors hover:bg-accent ${
+                        selectedDocument === doc.id ? "bg-accent" : ""
+                      }`}
+                    >
+                      <FileText className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      <div className="flex-1 min-w-0 w-0 overflow-hidden">
+                        <p className="text-sm font-medium truncate block overflow-hidden text-ellipsis whitespace-nowrap">
+                          {doc.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDate(doc.uploadedAt)}
+                          {doc.pageCount && ` • ${doc.pageCount} pages`}
+                        </p>
+                      </div>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs break-words">{doc.name}</p>
+                  </TooltipContent>
+                </Tooltip>
               ))}
             </div>
           )}

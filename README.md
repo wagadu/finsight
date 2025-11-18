@@ -14,7 +14,7 @@ FinSight Copilot allows users to upload financial documents (PDFs), chat with th
 - **Storage**: Supabase Storage for large file uploads (bypasses Vercel 4.5MB limit)
 - **Edge Functions**: Supabase Edge Functions for file processing
 - **AI/ML**: OpenAI models for LLM chat + embeddings for RAG
-- **Data Processing**: PySpark for evaluation pipelines (planned)
+- **Data Processing**: PySpark for evaluation pipelines (implemented with automatic fallback)
 
 ## Getting Started
 
@@ -31,6 +31,10 @@ cd backend
 pip install -r requirements.txt
 # or
 pip3 install -r requirements.txt
+
+# Note: PySpark is included in requirements.txt but requires Java 8 or 11
+# If PySpark is not available, the evaluation pipeline will automatically
+# fall back to basic Python computation
 \`\`\`
 
 ### Development
@@ -98,8 +102,9 @@ A separate `backend/` FastAPI service (`backend/main.py`) that:
 - **Owns AI logic and document metadata**: Manages document registry and AI processing
 - **Calls the OpenAI API for chat**: Integrates with OpenAI Chat Completions API for LLM responses
 - **Stores data in PostgreSQL/Supabase**: Documents, chunks, and evaluation results stored in SQL
-- **PySpark evaluation pipeline**: `evaluation_pipeline.py` provides scalable metric computation
+- **PySpark evaluation pipeline**: `evaluation_pipeline.py` provides scalable metric computation with automatic fallback to basic Python
 - **Evaluation endpoints**: `GET /eval/summary` and `POST /eval/run` for RAG system evaluation
+- **Database integration**: Can read evaluation data from Supabase/PostgreSQL for reprocessing and batch operations
 
 ### Current Implementation
 
@@ -124,7 +129,11 @@ A separate `backend/` FastAPI service (`backend/main.py`) that:
 #### Evaluation Metrics
 - **Python endpoint**: `GET /eval/summary` queries PostgreSQL for evaluation metrics
 - **Evaluation runs**: `POST /eval/run` triggers automated RAG system evaluation
-- **PySpark pipeline**: `evaluation_pipeline.py` provides scalable metric computation
+- **PySpark pipeline**: `evaluation_pipeline.py` provides scalable metric computation with automatic fallback
+  - Uses PySpark DataFrames for aggregations when available
+  - Automatically falls back to basic Python computation if PySpark is unavailable
+  - Computes metrics: accuracy, success rate, average response time, semantic similarity scores, document-level statistics
+- **Database integration**: Can read evaluation data from Supabase/PostgreSQL for reprocessing existing runs
 - **Database storage**: Evaluation results stored in `evaluation_runs`, `evaluation_questions`, and `evaluation_metrics` tables
 
 ### Local Development Setup
@@ -149,8 +158,8 @@ A separate `backend/` FastAPI service (`backend/main.py`) that:
 
 This architecture demonstrates:
 - **Microservices**: Separation of concerns between frontend (Next.js) and backend (FastAPI)
-- **Data Pipelines**: PySpark-ready design for scalable evaluation and metrics processing
-- **Python/SQL Solution Design**: Direct SQL usage planned for performance and transparency
+- **Data Pipelines**: PySpark implementation for scalable evaluation and metrics processing with automatic fallback
+- **Python/SQL Solution Design**: Direct SQL usage with Supabase/PostgreSQL for performance and transparency
 - **Applied LLM Usage**: Real-world OpenAI integration with structured responses
 - **Consulting-style AI Solution Work**: Enterprise-ready architecture patterns for AI applications
 
@@ -206,6 +215,20 @@ See `backend/EDGE_FUNCTION_SETUP.md` for detailed instructions on:
 - Deploying the Edge Function
 - Setting environment variables
 - Testing large file uploads
+
+#### PySpark Setup (Optional)
+
+The evaluation pipeline uses PySpark for scalable metric computation. PySpark is included in `requirements.txt` but requires:
+- **Java 8 or 11**: PySpark requires Java to be installed on your system
+- **Automatic fallback**: If PySpark is not available, the system automatically falls back to basic Python computation
+
+To verify PySpark is working:
+```bash
+cd backend
+python -c "from pyspark.sql import SparkSession; print('PySpark is available')"
+```
+
+If you see an error, PySpark will not be used, but the evaluation pipeline will still work using basic Python computation.
 
 ### Next.js BFF
 

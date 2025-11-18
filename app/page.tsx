@@ -4,9 +4,11 @@ import { TopNav } from "@/components/top-nav"
 import { DocumentUpload } from "@/components/document-upload"
 import { DocumentList } from "@/components/document-list"
 import { ChatInterface } from "@/components/chat-interface"
+import { EquityAnalystCopilot } from "@/components/equity-analyst-copilot"
 import { EmptyState } from "@/components/empty-state"
 import { EvalSummary } from "@/components/eval-summary"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useState } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
 
@@ -15,6 +17,7 @@ export default function Home() {
   const [selectedDocumentName, setSelectedDocumentName] = useState<string | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<"chat" | "copilot">("chat")
   const isMobile = useIsMobile()
   
   const handleUploadComplete = () => {
@@ -82,10 +85,26 @@ export default function Home() {
         {/* Main Content - Chat or Empty State */}
         <main className="flex flex-1 flex-col overflow-hidden bg-background">
           {selectedDocumentName && selectedDocumentId ? (
-            <ChatInterface 
-              documentName={selectedDocumentName}
-              documentId={selectedDocumentId}
-            />
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "chat" | "copilot")} className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex-shrink-0 border-b border-border px-4 md:px-6 pt-2">
+                <TabsList className="grid w-full max-w-md grid-cols-2">
+                  <TabsTrigger value="chat">Chat with document</TabsTrigger>
+                  <TabsTrigger value="copilot">Equity Analyst Copilot</TabsTrigger>
+                </TabsList>
+              </div>
+              <TabsContent value="chat" className="flex-1 overflow-hidden m-0">
+                <ChatInterface 
+                  documentName={selectedDocumentName}
+                  documentId={selectedDocumentId}
+                />
+              </TabsContent>
+              <TabsContent value="copilot" className="flex-1 overflow-hidden m-0">
+                <EquityAnalystCopilot 
+                  documentName={selectedDocumentName}
+                  documentId={selectedDocumentId}
+                />
+              </TabsContent>
+            </Tabs>
           ) : (
             <EmptyState />
           )}
