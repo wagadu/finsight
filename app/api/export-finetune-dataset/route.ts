@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAIServiceUrl } from '@/lib/ai-service'
 
+export const runtime = 'nodejs' // Use Node.js runtime for external API calls
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
