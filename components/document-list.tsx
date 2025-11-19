@@ -1,7 +1,6 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FileText, Loader2 } from 'lucide-react'
 import { useEffect, useState } from "react"
@@ -64,12 +63,12 @@ export function DocumentList({ selectedDocument, onSelectDocument, refreshTrigge
   }, [refreshTrigger])
 
   return (
-    <Card className="flex-1 w-full max-w-full overflow-hidden flex flex-col">
+    <Card className="w-full max-w-full flex flex-col">
       <CardHeader className="flex-shrink-0">
         <CardTitle className="text-base">Documents</CardTitle>
       </CardHeader>
-      <CardContent className="p-0 overflow-hidden flex-1 min-h-0">
-        <ScrollArea className="h-full">
+      <CardContent className="p-0">
+        <div className="max-h-64 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center p-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -112,7 +111,7 @@ export function DocumentList({ selectedDocument, onSelectDocument, refreshTrigge
               ))}
             </div>
           )}
-        </ScrollArea>
+        </div>
       </CardContent>
     </Card>
   )

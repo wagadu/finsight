@@ -1,18 +1,22 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, Play, TrendingUp, AlertTriangle, DollarSign, Target, BarChart3, ChevronDown, ChevronRight, FileText } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Loader2, Play, TrendingUp, AlertTriangle, DollarSign, Target, BarChart3, ChevronDown, ChevronRight, FileText, Clock } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { ModelType, SectionType, EquityAnalystSection } from "@/lib/types"
+import { ModelType, SectionType, EquityAnalystSection, EquityAnalystRunResponse } from "@/lib/types"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
 interface EquityAnalystCopilotProps {
   documentName: string
   documentId: string
+  selectedRunId?: string | null
+  onRunLoaded?: (runId: string) => void
+  onNewRunComplete?: () => void
 }
 
 const SECTION_ICONS: Record<SectionType, React.ReactNode> = {
@@ -31,11 +35,169 @@ const SECTION_TITLES: Record<SectionType, string> = {
   financial_trends: "Financial Trends",
 }
 
-export function EquityAnalystCopilot({ documentName, documentId }: EquityAnalystCopilotProps) {
+function formatTimeAgo(isoString: string): string {
+  const date = new Date(isoString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return "Just now"
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  
+  return date.toLocaleDateString()
+}
+
+export function EquityAnalystCopilot({ 
+  documentName, 
+  documentId, 
+  selectedRunId,
+  onRunLoaded,
+  onNewRunComplete 
+}: EquityAnalystCopilotProps) {
   const [selectedModel, setSelectedModel] = useState<ModelType>("baseline")
   const [isRunning, setIsRunning] = useState(false)
   const [sections, setSections] = useState<EquityAnalystSection[]>([])
+  const [currentRunId, setCurrentRunId] = useState<string | null>(selectedRunId || null)
+  const [isLoadingReport, setIsLoadingReport] = useState(false)
+  const [loadedReportInfo, setLoadedReportInfo] = useState<{ model: ModelType; timestamp: string } | null>(null)
   const { toast } = useToast()
+
+  // Auto-load latest report when document changes or selectedRunId changes
+  useEffect(() => {
+    console.log('EquityAnalystCopilot useEffect triggered:', { documentId, selectedRunId })
+    
+    if (!documentId) {
+      setSections([])
+      setCurrentRunId(null)
+      setLoadedReportInfo(null)
+      setIsLoadingReport(false)
+      return
+    }
+
+    const loadReport = async (runId: string | null = null) => {
+      setIsLoadingReport(true)
+      try {
+        // If a specific runId is provided, load it directly
+        if (runId) {
+          console.log('Loading specific report:', runId)
+          const reportResponse = await fetch(`/api/equity-analyst/runs/${runId}`)
+          
+          if (!reportResponse.ok) {
+            const errorText = await reportResponse.text()
+            console.error('Failed to load report:', reportResponse.status, errorText)
+            toast({
+              title: "Failed to load report",
+              description: `Error: ${reportResponse.status}`,
+              variant: "destructive",
+            })
+            setIsLoadingReport(false)
+            return
+          }
+          
+          const reportData: EquityAnalystRunResponse = await reportResponse.json()
+          console.log('Report loaded:', reportData)
+          
+          if (reportData.sections && reportData.sections.length > 0) {
+            setSections(reportData.sections)
+            setCurrentRunId(runId)
+            
+            // Fetch run info for display
+            const runsResponse = await fetch(`/api/equity-analyst/runs?documentId=${documentId}`)
+            if (runsResponse.ok) {
+              const runsData = await runsResponse.json()
+              const runs = runsData.runs || []
+              const runInfo = runs.find((r: any) => r.id === runId)
+              if (runInfo) {
+                setLoadedReportInfo({
+                  model: runInfo.run_type as ModelType,
+                  timestamp: runInfo.created_at
+                })
+              }
+            }
+            
+            if (onRunLoaded) {
+              onRunLoaded(runId)
+            }
+          } else {
+            console.warn('Report has no sections:', reportData)
+            setSections([])
+            toast({
+              title: "Report is empty",
+              description: "This report has no analysis sections.",
+              variant: "destructive",
+            })
+          }
+          setIsLoadingReport(false)
+          return
+        }
+        
+        // Otherwise, fetch all runs first to check if any exist
+        const runsResponse = await fetch(`/api/equity-analyst/runs?documentId=${documentId}`)
+        
+        if (!runsResponse.ok) {
+          throw new Error('Failed to fetch reports')
+        }
+        
+        const runsData = await runsResponse.json()
+        const runs = runsData.runs || []
+        
+        // If no runs exist, stop loading and show empty state
+        if (runs.length === 0) {
+          console.log('No reports found for document')
+          setSections([])
+          setCurrentRunId(null)
+          setLoadedReportInfo(null)
+          setIsLoadingReport(false)
+          return
+        }
+        
+        // Find the latest completed run
+        const latestCompleted = runs.find((r: any) => r.status === 'completed')
+        
+        if (latestCompleted) {
+          const reportResponse = await fetch(`/api/equity-analyst/runs/${latestCompleted.id}`)
+          if (reportResponse.ok) {
+            const reportData: EquityAnalystRunResponse = await reportResponse.json()
+            setSections(reportData.sections || [])
+            setCurrentRunId(latestCompleted.id)
+            setLoadedReportInfo({
+              model: latestCompleted.run_type as ModelType,
+              timestamp: latestCompleted.created_at
+            })
+            
+            if (onRunLoaded) {
+              onRunLoaded(latestCompleted.id)
+            }
+          }
+        } else {
+          // No completed reports available
+          setSections([])
+          setCurrentRunId(null)
+          setLoadedReportInfo(null)
+        }
+        setIsLoadingReport(false)
+      } catch (error) {
+        console.error('Error loading report:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        toast({
+          title: "Failed to load report",
+          description: errorMessage,
+          variant: "destructive",
+        })
+        setSections([])
+        setCurrentRunId(null)
+        setLoadedReportInfo(null)
+        setIsLoadingReport(false)
+      }
+    }
+
+    loadReport(selectedRunId || null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, selectedRunId])
 
   const handleRunAnalysis = async () => {
     setIsRunning(true)
@@ -60,6 +222,21 @@ export function EquityAnalystCopilot({ documentName, documentId }: EquityAnalyst
 
       const data = await response.json()
       setSections(data.sections || [])
+      setCurrentRunId(data.runId)
+      
+      // Update loaded report info
+      setLoadedReportInfo({
+        model: selectedModel,
+        timestamp: new Date().toISOString()
+      })
+      
+      if (onRunLoaded) {
+        onRunLoaded(data.runId)
+      }
+      
+      if (onNewRunComplete) {
+        onNewRunComplete()
+      }
 
       toast({
         title: "Analysis completed",
@@ -85,15 +262,30 @@ export function EquityAnalystCopilot({ documentName, documentId }: EquityAnalyst
       {/* Header */}
       <div className="flex-shrink-0 border-b border-border bg-muted/30 px-4 md:px-6 py-3 md:py-4">
         <div className="flex items-center justify-between gap-4">
-          <div>
+          <div className="flex-1 min-w-0">
             <h2 className="text-base md:text-lg font-semibold text-foreground truncate">
               Equity Analyst Copilot
             </h2>
-            <p className="text-xs md:text-sm text-muted-foreground">
-              {documentName}
-            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-xs md:text-sm text-muted-foreground truncate">
+                {documentName}
+              </p>
+              {loadedReportInfo && (
+                <>
+                  <span className="text-xs text-muted-foreground">•</span>
+                  <Badge variant="outline" className="text-xs">
+                    {loadedReportInfo.model === 'baseline' ? 'Baseline' : 
+                     loadedReportInfo.model === 'ft' ? 'Fine-tuned' : 'Distilled'}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {formatTimeAgo(loadedReportInfo.timestamp)}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <Select value={selectedModel} onValueChange={(value) => setSelectedModel(value as ModelType)}>
               <SelectTrigger className="w-[140px]">
                 <SelectValue placeholder="Model" />
@@ -106,7 +298,7 @@ export function EquityAnalystCopilot({ documentName, documentId }: EquityAnalyst
             </Select>
             <Button
               onClick={handleRunAnalysis}
-              disabled={isRunning}
+              disabled={isRunning || isLoadingReport}
               className="flex-shrink-0"
             >
               {isRunning ? (
@@ -127,7 +319,12 @@ export function EquityAnalystCopilot({ documentName, documentId }: EquityAnalyst
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        {sections.length === 0 && !isRunning ? (
+        {isLoadingReport ? (
+          <div className="flex flex-col items-center justify-center h-full">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+            <p className="text-sm text-muted-foreground">Loading report...</p>
+          </div>
+        ) : sections.length === 0 && !isRunning ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Target className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">Ready to analyze</h3>

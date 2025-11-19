@@ -1003,6 +1003,18 @@ class EquityAnalystRunResponse(BaseModel):
     sections: List[EquityAnalystSectionResponse]
 
 
+class EquityAnalystRunSummary(BaseModel):
+    id: str
+    document_id: str
+    model_name: str
+    run_type: str
+    status: str
+    created_at: str
+    completed_at: Optional[str] = None
+    section_count: int = 0
+    avg_response_time_ms: Optional[int] = None
+
+
 # Fixed checklist of analyst questions
 EQUITY_ANALYST_QUESTIONS = [
     {
@@ -1180,6 +1192,119 @@ INSTRUCTIONS:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to run equity analyst copilot: {str(e)}"
+        )
+
+
+@app.get("/equity-analyst/runs")
+async def get_equity_analyst_runs(document_id: str):
+    """
+    Get all equity analyst runs for a specific document.
+    Returns summary information for each run.
+    """
+    if not supabase:
+        raise HTTPException(
+            status_code=500,
+            detail="Database connection not configured"
+        )
+    
+    try:
+        # Get all runs for the document, ordered by most recent first
+        runs_result = supabase.table("equity_analyst_runs").select(
+            "id, document_id, model_name, run_type, status, created_at, completed_at"
+        ).eq("document_id", document_id).order("created_at", desc=True).execute()
+        
+        if not runs_result.data:
+            return {"runs": []}
+        
+        runs = []
+        for run in runs_result.data:
+            # Get section count and average response time
+            sections_result = supabase.table("equity_analyst_sections").select(
+                "id, response_time_ms"
+            ).eq("run_id", run["id"]).execute()
+            
+            section_count = len(sections_result.data) if sections_result.data else 0
+            response_times = [
+                s["response_time_ms"] 
+                for s in (sections_result.data or []) 
+                if s.get("response_time_ms")
+            ]
+            avg_response_time = int(sum(response_times) / len(response_times)) if response_times else None
+            
+            runs.append(EquityAnalystRunSummary(
+                id=run["id"],
+                document_id=run["document_id"],
+                model_name=run["model_name"],
+                run_type=run["run_type"],
+                status=run["status"],
+                created_at=run["created_at"],
+                completed_at=run.get("completed_at"),
+                section_count=section_count,
+                avg_response_time_ms=avg_response_time
+            ))
+        
+        return {"runs": runs}
+        
+    except Exception as e:
+        print(f"Error fetching equity analyst runs: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch equity analyst runs: {str(e)}"
+        )
+
+
+@app.get("/equity-analyst/runs/{run_id}")
+async def get_equity_analyst_run(run_id: str):
+    """
+    Get a specific equity analyst run with all its sections.
+    """
+    if not supabase:
+        raise HTTPException(
+            status_code=500,
+            detail="Database connection not configured"
+        )
+    
+    try:
+        # Get the run
+        run_result = supabase.table("equity_analyst_runs").select(
+            "id, document_id, model_name, run_type, status, created_at, completed_at"
+        ).eq("id", run_id).execute()
+        
+        if not run_result.data:
+            raise HTTPException(status_code=404, detail="Run not found")
+        
+        run = run_result.data[0]
+        
+        # Get all sections for this run
+        sections_result = supabase.table("equity_analyst_sections").select(
+            "id, section_type, question_text, model_answer, citations, response_time_ms"
+        ).eq("run_id", run_id).order("created_at").execute()
+        
+        sections = []
+        if sections_result.data:
+            for section in sections_result.data:
+                sections.append(EquityAnalystSectionResponse(
+                    id=section["id"],
+                    section_type=section["section_type"],
+                    question_text=section["question_text"],
+                    model_answer=section["model_answer"],
+                    citations=section.get("citations", []),
+                    response_time_ms=section.get("response_time_ms")
+                ))
+        
+        return EquityAnalystRunResponse(
+            runId=run["id"],
+            status=run["status"],
+            sections=sections
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching equity analyst run: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch equity analyst run: {str(e)}"
         )
 
 

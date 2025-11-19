@@ -62,6 +62,18 @@ export interface EquityAnalystRunResponse {
   sections: EquityAnalystSection[]
 }
 
+export interface EquityAnalystRunSummary {
+  id: string
+  document_id: string
+  model_name: string
+  run_type: ModelType
+  status: 'running' | 'completed' | 'failed'
+  created_at: string
+  completed_at?: string
+  section_count: number
+  avg_response_time_ms?: number
+}
+
 export interface ExportFinetuneDatasetRequest {
   modelName?: string
   isGoldOnly?: boolean

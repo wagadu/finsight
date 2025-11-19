@@ -7,10 +7,12 @@ import { ChatInterface } from "@/components/chat-interface"
 import { EquityAnalystCopilot } from "@/components/equity-analyst-copilot"
 import { EmptyState } from "@/components/empty-state"
 import { EvalSummary } from "@/components/eval-summary"
+import { ReportHistory } from "@/components/report-history"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useState } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { cn } from "@/lib/utils"
 
 export default function Home() {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
@@ -18,6 +20,8 @@ export default function Home() {
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<"chat" | "copilot">("chat")
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [reportHistoryRefresh, setReportHistoryRefresh] = useState(0)
   const isMobile = useIsMobile()
   
   const handleUploadComplete = () => {
@@ -31,6 +35,7 @@ export default function Home() {
   const handleSelectDocument = (docId: string, docName: string) => {
     setSelectedDocumentId(docId)
     setSelectedDocumentName(docName)
+    setSelectedRunId(null) // Reset selected run when document changes
     // Close sidebar on mobile after selecting document
     if (isMobile) {
       setSidebarOpen(false)
@@ -42,15 +47,43 @@ export default function Home() {
     setSelectedDocumentName(null)
   }
 
+  const handleSelectRun = (runId: string) => {
+    setSelectedRunId(runId)
+  }
+
+  const handleRunLoaded = (runId: string) => {
+    setSelectedRunId(runId)
+  }
+
+  const handleNewRunComplete = () => {
+    setReportHistoryRefresh(prev => prev + 1)
+  }
+
   const SidebarContent = () => (
-    <div className="flex h-full flex-col gap-4 p-4">
-      <DocumentUpload onUploadComplete={handleUploadComplete} />
-      <DocumentList 
-        selectedDocument={selectedDocumentId}
-        onSelectDocument={handleSelectDocument}
-        refreshTrigger={refreshTrigger}
-      />
-      <div className="mt-auto">
+    <div className="flex flex-col gap-4 p-4">
+      <div className="flex-shrink-0">
+        <DocumentUpload onUploadComplete={handleUploadComplete} />
+      </div>
+      {/* Documents section - always visible */}
+      <div className="flex-shrink-0">
+        <DocumentList 
+          selectedDocument={selectedDocumentId}
+          onSelectDocument={handleSelectDocument}
+          refreshTrigger={refreshTrigger}
+        />
+      </div>
+      {/* Analysis Reports - only visible in copilot tab when document is selected */}
+      {activeTab === "copilot" && selectedDocumentId && (
+        <div className="flex-shrink-0">
+          <ReportHistory
+            documentId={selectedDocumentId}
+            selectedRunId={selectedRunId}
+            onSelectRun={handleSelectRun}
+            refreshTrigger={reportHistoryRefresh}
+          />
+        </div>
+      )}
+      <div className="flex-shrink-0">
         <EvalSummary documentId={selectedDocumentId} />
       </div>
     </div>
@@ -102,6 +135,9 @@ export default function Home() {
                 <EquityAnalystCopilot 
                   documentName={selectedDocumentName}
                   documentId={selectedDocumentId}
+                  selectedRunId={selectedRunId}
+                  onRunLoaded={handleRunLoaded}
+                  onNewRunComplete={handleNewRunComplete}
                 />
               </TabsContent>
             </Tabs>
