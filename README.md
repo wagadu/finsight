@@ -169,6 +169,7 @@ This architecture demonstrates:
 - 💬 **Chat Interface**: Natural language queries with AI-powered responses
 - 🔍 **Evidence Citations**: Source excerpts linked to specific document pages
 - 📊 **Evaluation Metrics**: Track RAG system performance and accuracy
+- 🤖 **Autonomous Filing Agent**: Automatically discovers and ingests annual reports from SEC EDGAR and AnnualReports.com
 - 🎨 **Clean UI**: Professional internal tool design with shadcn/ui components
 
 ## Environment Variables
@@ -194,6 +195,18 @@ OPENAI_API_KEY=your_openai_api_key_here
 # Get these from your Supabase project: https://supabase.com/dashboard
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_supabase_anon_key_here
+
+# Filing Agent Configuration (optional)
+# SEC API requires a User-Agent with contact email per their guidelines
+SEC_USER_AGENT=FinSight Filing Scout (your-email@example.com)
+
+# Webhook Notifications (optional)
+FILING_AGENT_WEBHOOK_ENABLED=false
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+# OR
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR/WEBHOOK/URL
+# OR
+FILING_AGENT_WEBHOOK_URL=https://your-custom-webhook.com/endpoint
 \`\`\`
 
 #### Setting up Supabase Database
@@ -235,7 +248,25 @@ If you see an error, PySpark will not be used, but the evaluation pipeline will 
 \`\`\`env
 # Optional: URL of the Python FastAPI service (defaults to http://localhost:8001)
 AI_SERVICE_URL=http://localhost:8001
+
+# Required for Filing Agent API routes: Supabase service role key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+# OR use SUPABASE_KEY if it's the service role key
 \`\`\`
+
+## Filing Agent
+
+The FinSight Filing Agent autonomously monitors SEC EDGAR and AnnualReports.com for new annual reports, queues them for review, and ingests approved filings into the RAG system.
+
+### Quick Start
+
+1. **Run the database migration**: Execute `backend/filing_agent_schema.sql` in your Supabase SQL editor
+2. **Add companies to watchlist**: Insert companies into `filing_watchlist` table
+3. **Run the agent**: `python -m backend.agents.filing_scout --dry-run` (test) or `python -m backend.agents.filing_scout` (production)
+4. **Review candidates**: Navigate to `/filings` in the app to review and approve candidates
+
+For detailed documentation, see [docs/filing_agent.md](docs/filing_agent.md).
 
 ### Future (PostgreSQL Integration)
 

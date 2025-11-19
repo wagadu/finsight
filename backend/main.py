@@ -1468,3 +1468,48 @@ async def export_finetune_dataset(
             detail=f"Failed to export dataset: {str(e)}"
         )
 
+
+# Filing agent endpoints
+@app.post("/filings/{candidate_id}/ingest")
+async def ingest_filing(candidate_id: str):
+    """
+    Trigger ingestion of an approved filing candidate.
+    This endpoint is called by the Next.js API when a filing is approved.
+    """
+    if not supabase:
+        raise HTTPException(
+            status_code=500,
+            detail="Database connection not configured"
+        )
+    
+    try:
+        # Import the ingestion module
+        from agents.filing_ingestion import ingest_filing_candidate
+        
+        # Run ingestion asynchronously
+        import asyncio
+        document_id = await ingest_filing_candidate(candidate_id)
+        
+        if document_id:
+            return {
+                "success": True,
+                "candidate_id": candidate_id,
+                "document_id": document_id
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to ingest filing candidate"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error ingesting filing candidate {candidate_id}: {str(e)}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to ingest filing: {str(e)}"
+        )
+
