@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAIServiceUrl } from '@/lib/ai-service'
 
 export const runtime = 'nodejs' // Use Node.js runtime for external API calls
+export const dynamic = 'force-dynamic' // Ensure route is not statically optimized
 
 type EquityAnalystRunRequest = {
   documentId: string
