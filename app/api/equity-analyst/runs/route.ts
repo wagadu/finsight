@@ -43,7 +43,19 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json()
-    return NextResponse.json(data)
+    
+    // Add HTTP caching headers for runs list
+    // Shorter cache since new runs might be added, but still cache for performance
+    const response_obj = NextResponse.json(data)
+    
+    // Cache for 5 minutes, with stale-while-revalidate for 10 minutes
+    // This allows serving stale data while fetching fresh data in background
+    response_obj.headers.set(
+      'Cache-Control',
+      'public, s-maxage=300, stale-while-revalidate=600, max-age=300'
+    )
+    
+    return response_obj
   } catch (error) {
     console.error('Error in /api/equity-analyst/runs:', error)
     return NextResponse.json(

@@ -45,7 +45,19 @@ export async function GET(
     }
 
     const data = await response.json()
-    return NextResponse.json(data)
+    
+    // Add HTTP caching headers for completed reports
+    // Completed reports are static and can be cached longer
+    const cacheMaxAge = data.status === 'completed' ? 3600 : 60 // 1 hour for completed, 1 min for running
+    const response_obj = NextResponse.json(data)
+    
+    // Cache-Control: public (can be cached by CDN), s-maxage (CDN cache), stale-while-revalidate (serve stale while revalidating)
+    response_obj.headers.set(
+      'Cache-Control',
+      `public, s-maxage=${cacheMaxAge}, stale-while-revalidate=${cacheMaxAge * 2}, max-age=${cacheMaxAge}`
+    )
+    
+    return response_obj
   } catch (error) {
     console.error('Error in /api/equity-analyst/runs/[runId]:', error)
     return NextResponse.json(
