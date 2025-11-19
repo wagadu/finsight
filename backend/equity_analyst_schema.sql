@@ -49,6 +49,20 @@ CREATE INDEX IF NOT EXISTS idx_equity_sections_is_gold ON equity_analyst_section
 CREATE INDEX IF NOT EXISTS idx_chat_logs_document_id ON chat_logs(document_id);
 CREATE INDEX IF NOT EXISTS idx_chat_logs_created_at ON chat_logs(created_at DESC);
 
+-- Performance optimization indexes (Phase 1)
+-- Composite index for sections query with ordering
+CREATE INDEX IF NOT EXISTS idx_equity_sections_run_created 
+ON equity_analyst_sections(run_id, created_at);
+
+-- Index for aggregations on response_time_ms
+CREATE INDEX IF NOT EXISTS idx_equity_sections_run_response_time 
+ON equity_analyst_sections(run_id, response_time_ms) 
+WHERE response_time_ms IS NOT NULL;
+
+-- Composite index for bulk section queries (used in N+1 fix)
+CREATE INDEX IF NOT EXISTS idx_equity_sections_run_id_response_time 
+ON equity_analyst_sections(run_id, response_time_ms);
+
 -- Enable RLS
 ALTER TABLE equity_analyst_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE equity_analyst_sections ENABLE ROW LEVEL SECURITY;

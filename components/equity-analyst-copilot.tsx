@@ -105,18 +105,12 @@ export function EquityAnalystCopilot({
             setSections(reportData.sections)
             setCurrentRunId(runId)
             
-            // Fetch run info for display
-            const runsResponse = await fetch(`/api/equity-analyst/runs?documentId=${documentId}`)
-            if (runsResponse.ok) {
-              const runsData = await runsResponse.json()
-              const runs = runsData.runs || []
-              const runInfo = runs.find((r: any) => r.id === runId)
-              if (runInfo) {
-                setLoadedReportInfo({
-                  model: runInfo.run_type as ModelType,
-                  timestamp: runInfo.created_at
-                })
-              }
+            // Use metadata from reportData response (no redundant API call needed)
+            if (reportData.run_type && reportData.created_at) {
+              setLoadedReportInfo({
+                model: reportData.run_type,
+                timestamp: reportData.created_at
+              })
             }
             
             if (onRunLoaded) {
@@ -164,10 +158,18 @@ export function EquityAnalystCopilot({
             const reportData: EquityAnalystRunResponse = await reportResponse.json()
             setSections(reportData.sections || [])
             setCurrentRunId(latestCompleted.id)
-            setLoadedReportInfo({
-              model: latestCompleted.run_type as ModelType,
-              timestamp: latestCompleted.created_at
-            })
+            // Use metadata from reportData response if available, otherwise fallback to latestCompleted
+            if (reportData.run_type && reportData.created_at) {
+              setLoadedReportInfo({
+                model: reportData.run_type,
+                timestamp: reportData.created_at
+              })
+            } else {
+              setLoadedReportInfo({
+                model: latestCompleted.run_type as ModelType,
+                timestamp: latestCompleted.created_at
+              })
+            }
             
             if (onRunLoaded) {
               onRunLoaded(latestCompleted.id)

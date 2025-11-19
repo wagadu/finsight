@@ -1001,6 +1001,10 @@ class EquityAnalystRunResponse(BaseModel):
     runId: str
     status: str
     sections: List[EquityAnalystSectionResponse]
+    model_name: Optional[str] = None
+    run_type: Optional[str] = None
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
 
 
 class EquityAnalystRunSummary(BaseModel):
@@ -1175,10 +1179,21 @@ INSTRUCTIONS:
             "completed_at": datetime.now().isoformat()
         }).eq("id", run_id).execute()
         
+        # Get run metadata for response
+        run_result = supabase.table("equity_analyst_runs").select(
+            "model_name, run_type, created_at, completed_at"
+        ).eq("id", run_id).execute()
+        
+        run_meta = run_result.data[0] if run_result.data else {}
+        
         return EquityAnalystRunResponse(
             runId=run_id,
             status="completed",
-            sections=sections
+            sections=sections,
+            model_name=run_meta.get("model_name"),
+            run_type=run_meta.get("run_type"),
+            created_at=run_meta.get("created_at"),
+            completed_at=run_meta.get("completed_at")
         )
         
     except Exception as e:
@@ -1216,19 +1231,32 @@ async def get_equity_analyst_runs(document_id: str):
         if not runs_result.data:
             return {"runs": []}
         
+        # Get all run IDs
+        run_ids = [run["id"] for run in runs_result.data]
+        
+        # Single query to get all sections for all runs (fixes N+1 problem)
+        from collections import defaultdict
+        sections_by_run = defaultdict(lambda: {"count": 0, "times": []})
+        
+        if run_ids:
+            sections_result = supabase.table("equity_analyst_sections").select(
+                "run_id, response_time_ms"
+            ).in_("run_id", run_ids).execute()
+            
+            if sections_result.data:
+                for section in sections_result.data:
+                    run_id = section["run_id"]
+                    sections_by_run[run_id]["count"] += 1
+                    if section.get("response_time_ms"):
+                        sections_by_run[run_id]["times"].append(section["response_time_ms"])
+        
+        # Build response with aggregated data
         runs = []
         for run in runs_result.data:
-            # Get section count and average response time
-            sections_result = supabase.table("equity_analyst_sections").select(
-                "id, response_time_ms"
-            ).eq("run_id", run["id"]).execute()
-            
-            section_count = len(sections_result.data) if sections_result.data else 0
-            response_times = [
-                s["response_time_ms"] 
-                for s in (sections_result.data or []) 
-                if s.get("response_time_ms")
-            ]
+            run_id = run["id"]
+            section_data = sections_by_run[run_id]
+            section_count = section_data["count"]
+            response_times = section_data["times"]
             avg_response_time = int(sum(response_times) / len(response_times)) if response_times else None
             
             runs.append(EquityAnalystRunSummary(
@@ -1295,7 +1323,11 @@ async def get_equity_analyst_run(run_id: str):
         return EquityAnalystRunResponse(
             runId=run["id"],
             status=run["status"],
-            sections=sections
+            sections=sections,
+            model_name=run["model_name"],
+            run_type=run["run_type"],
+            created_at=run["created_at"],
+            completed_at=run.get("completed_at")
         )
         
     except HTTPException:

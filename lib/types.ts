@@ -60,6 +60,10 @@ export interface EquityAnalystRunResponse {
   runId: string
   status: 'running' | 'completed' | 'failed'
   sections: EquityAnalystSection[]
+  model_name?: string
+  run_type?: ModelType
+  created_at?: string
+  completed_at?: string
 }
 
 export interface EquityAnalystRunSummary {
