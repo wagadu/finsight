@@ -1,41 +1,46 @@
 import { NextResponse } from 'next/server'
-import { getAIServiceUrl } from '@/lib/ai-service'
+import { getSupabaseServerClient } from '@/lib/supabase-server'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    const AI_SERVICE_URL = getAIServiceUrl()
-    // Fetch documents from Python FastAPI service
-    const response = await fetch(`${AI_SERVICE_URL}/documents`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
+    const supabase = getSupabaseServerClient()
+    
+    // Fetch documents directly from Supabase
+    const { data, error } = await supabase
+      .from('documents')
+      .select('id, name, uploaded_at, created_at')
+      .order('uploaded_at', { ascending: false })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Python service error:', response.status, errorText)
+    if (error) {
+      console.error('Error fetching documents from Supabase:', error)
       return NextResponse.json(
-        { error: 'Failed to fetch documents from AI service' },
+        { 
+          error: 'Failed to fetch documents',
+          details: error.message 
+        },
         { status: 500 }
       )
     }
 
-    const pythonDocuments = await response.json()
-    
-    // Transform Python Document list to match frontend shape
-    const documents = pythonDocuments.map((doc: { id: string; name: string; uploaded_at: string }) => ({
+    // Transform to match frontend shape
+    const documents = (data || []).map((doc) => ({
       id: doc.id,
       name: doc.name,
-      uploadedAt: doc.uploaded_at,
+      uploadedAt: doc.uploaded_at || doc.created_at,
       pageCount: undefined, // Will be populated when PDF parsing is implemented
     }))
 
     return NextResponse.json({ documents })
-  } catch (error) {
-    console.error('Error fetching documents:', error)
+  } catch (error: any) {
+    console.error('Error in /api/documents:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Internal server error',
+        details: error?.message || 'Unknown error'
+      },
       { status: 500 }
     )
   }

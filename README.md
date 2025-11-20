@@ -52,14 +52,25 @@ app/
 ├── api/              # Next.js API routes (BFF layer)
 │   ├── chat/        # Chat endpoint (proxies to Python /chat)
 │   ├── documents/   # Document endpoints (proxies to Python /documents)
-│   └── eval/        # Evaluation metrics (wired to Python /eval/summary)
+│   ├── eval/        # Evaluation metrics (wired to Python /eval/summary)
+│   ├── filings/     # Filing management endpoints
+│   │   ├── route.ts           # List filing candidates
+│   │   ├── search/route.ts    # Natural language filing search
+│   │   └── [id]/              # Approve/reject individual filings
+│   └── equity-analyst/  # Equity analyst copilot endpoints
+├── filings/         # Filing candidates management page
 ├── layout.tsx       # Root layout with navigation
 └── page.tsx         # Main application page
 
 backend/
 ├── main.py              # FastAPI service with AI logic, document registry, and evaluation endpoints
 ├── evaluation_pipeline.py  # PySpark evaluation pipeline for scalable metric computation
+├── agents/              # Autonomous agents
+│   ├── filing_scout.py      # Discovers new filings from SEC and AnnualReports.com
+│   ├── filing_ingestion.py   # Ingests approved filings into RAG system
+│   └── webhook_notifier.py   # Sends notifications for filing events
 ├── schema.sql           # PostgreSQL schema (documents, chunks, evaluation tables)
+├── filing_agent_schema.sql  # Filing agent specific schema (watchlist, candidates, ingestions)
 ├── storage_setup.sql    # Supabase Storage bucket and RLS policies
 ├── requirements.txt     # Python dependencies
 ├── SUPABASE_SETUP.md    # Supabase setup guide
@@ -72,14 +83,26 @@ supabase/
     ├── upload-document/  # Edge Function for processing uploaded documents
     └── _shared/         # Shared utilities (CORS headers)
 
+docs/
+├── filing_agent.md              # Filing agent documentation
+├── FILING_SEARCH_SETUP.md       # Filing search chat setup guide
+├── FILING_SEARCH_ARCHITECTURE.md # Filing search architecture
+├── AGENT_BUILDER_SETUP.md       # OpenAI Agent Builder setup
+├── AGENT_BUILDER_STEP_BY_STEP.md # Step-by-step Agent Builder guide
+├── WORKFLOW_API_LIMITATIONS.md  # Workflow API limitations and workarounds
+├── QUICK_START_FILING_AGENT.md  # Quick start for filing agent
+└── TROUBLESHOOTING_INGESTION.md # Troubleshooting guide
+
 components/
-├── chat-input.tsx      # Message input with suggestions
-├── chat-interface.tsx  # Main chat container
-├── chat-thread.tsx     # Message display with evidence
-├── document-list.tsx   # Sidebar document list
-├── document-upload.tsx # Drag-and-drop upload
-├── eval-summary.tsx    # Evaluation metrics display
-└── ui/                 # shadcn/ui components
+├── chat-input.tsx         # Message input with suggestions
+├── chat-interface.tsx       # Main chat container
+├── chat-thread.tsx         # Message display with evidence
+├── document-list.tsx      # Sidebar document list
+├── document-upload.tsx    # Drag-and-drop upload
+├── eval-summary.tsx       # Evaluation metrics display
+├── filing-search-chat.tsx # Natural language filing search interface
+├── equity-analyst-copilot.tsx  # Equity analyst copilot interface
+└── ui/                    # shadcn/ui components
 \`\`\`
 
 ## Backend Integration
@@ -126,6 +149,14 @@ A separate `backend/` FastAPI service (`backend/main.py`) that:
 - **System Prompt**: Configured as "FinSight Copilot" for financial analysts
 - **Temperature**: Set to 0.2 for consistent, focused responses
 
+#### Filing Search Chat
+- **Natural Language Processing**: Uses OpenAI to extract company, filing type, and year from queries
+- **SEC EDGAR Integration**: Direct integration with SEC API to search for filings
+- **Company Resolution**: Automatically resolves company names/tickers to CIK (Central Index Key)
+- **Automatic Candidate Creation**: Found filings are automatically added to the candidates list
+- **Agent Builder Support**: Optional integration with OpenAI Agent Builder workflows
+- **Smart Fallback**: Automatically falls back to Chat API if Agent Builder is unavailable
+
 #### Evaluation Metrics
 - **Python endpoint**: `GET /eval/summary` queries PostgreSQL for evaluation metrics
 - **Evaluation runs**: `POST /eval/run` triggers automated RAG system evaluation
@@ -170,6 +201,8 @@ This architecture demonstrates:
 - 🔍 **Evidence Citations**: Source excerpts linked to specific document pages
 - 📊 **Evaluation Metrics**: Track RAG system performance and accuracy
 - 🤖 **Autonomous Filing Agent**: Automatically discovers and ingests annual reports from SEC EDGAR and AnnualReports.com
+- 🔎 **Filing Search Chat**: Natural language search for SEC filings - ask in plain language to find and add 10-K/annual reports
+- 🧠 **OpenAI Agent Builder Integration**: Optional integration with OpenAI Agent Builder workflows for advanced query processing
 - 🎨 **Clean UI**: Professional internal tool design with shadcn/ui components
 
 ## Environment Variables
@@ -253,6 +286,17 @@ AI_SERVICE_URL=http://localhost:8001
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 # OR use SUPABASE_KEY if it's the service role key
+
+# Required for Filing Search Chat: OpenAI API key
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini  # Optional, defaults to gpt-4o-mini
+
+# Optional: OpenAI Agent Builder integration
+# Get workflow ID from https://platform.openai.com/agent-builder
+OPENAI_AGENT_ID=wf_...  # or agent_... for agents
+
+# Required for SEC API: User-Agent with contact email
+SEC_USER_AGENT=FinSight Filing Search (your-email@example.com)
 \`\`\`
 
 ## Filing Agent
@@ -267,6 +311,55 @@ The FinSight Filing Agent autonomously monitors SEC EDGAR and AnnualReports.com 
 4. **Review candidates**: Navigate to `/filings` in the app to review and approve candidates
 
 For detailed documentation, see [docs/filing_agent.md](docs/filing_agent.md).
+
+## Filing Search Chat
+
+A new feature that allows users to search for SEC filings using natural language queries directly from the `/filings` page.
+
+### Features
+
+- **Natural Language Search**: Ask questions like "Find Apple's 2023 10-K annual report" or "Search Microsoft quarterly 2024"
+- **Automatic Extraction**: Uses OpenAI to extract company name, filing type, and year from queries
+- **SEC Integration**: Automatically searches SEC EDGAR database for matching filings
+- **Direct Integration**: Found filings are automatically added to the filing candidates list
+- **OpenAI Agent Builder Support**: Optional integration with Agent Builder workflows (see below)
+
+### Usage
+
+1. Navigate to `/filings` page
+2. Use the chat interface at the top of the page
+3. Enter queries like:
+   - "Find Apple's 2023 10-K annual report"
+   - "Search Microsoft quarterly 2024"
+   - "Get Tesla latest annual report"
+4. The system will automatically find and add the filing to candidates
+
+For detailed setup instructions, see [docs/FILING_SEARCH_SETUP.md](docs/FILING_SEARCH_SETUP.md).
+
+## OpenAI Agent Builder Integration
+
+The filing search feature supports optional integration with OpenAI Agent Builder workflows for advanced query processing.
+
+### Current Status
+
+- **Workflow Support**: The code attempts to use Agent Builder workflows when `OPENAI_AGENT_ID` is configured
+- **Automatic Fallback**: If workflows are not accessible via REST API, the system automatically falls back to Chat API with equivalent instructions
+- **Seamless Experience**: The fallback is transparent and produces identical results
+
+### Setup (Optional)
+
+1. **Create a workflow in Agent Builder**: Go to https://platform.openai.com/agent-builder
+2. **Configure instructions**: Use the instructions from [docs/AGENT_BUILDER_SETUP.md](docs/AGENT_BUILDER_SETUP.md)
+3. **Get workflow ID**: Copy the workflow ID (starts with `wf_`)
+4. **Add to environment**: Add `OPENAI_AGENT_ID=wf_...` to `.env.local`
+5. **Restart server**: The system will automatically use the workflow if available
+
+**Note**: Workflows may not be accessible via REST API yet. The system will automatically use Chat API with equivalent instructions, which produces the same results.
+
+For detailed step-by-step instructions, see:
+- [docs/AGENT_BUILDER_STEP_BY_STEP.md](docs/AGENT_BUILDER_STEP_BY_STEP.md) - Complete setup guide
+- [docs/AGENT_BUILDER_SETUP.md](docs/AGENT_BUILDER_SETUP.md) - Technical reference
+- [docs/WORKFLOW_API_LIMITATIONS.md](docs/WORKFLOW_API_LIMITATIONS.md) - Current limitations and workarounds
 
 ### Future (PostgreSQL Integration)
 

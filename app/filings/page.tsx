@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Loader2, CheckCircle2, XCircle, ExternalLink, RefreshCw, Filter } from "lucide-react"
 import { toast } from "sonner"
 import { TopNav } from "@/components/top-nav"
+import { FilingSearchChat } from "@/components/filing-search-chat"
 
 interface FilingCandidate {
   id: string
@@ -166,6 +167,8 @@ export default function FilingsPage() {
             Review and approve discovered annual reports for ingestion
           </p>
         </div>
+
+        <FilingSearchChat onCandidateAdded={fetchCandidates} />
 
         <Card className="mb-6">
           <CardHeader>

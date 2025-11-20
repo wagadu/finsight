@@ -1,0 +1,182 @@
+/**
+ * Example implementation using OpenAI Agent SDK
+ * 
+ * To use this:
+ * 1. Rename this file to route.ts (backup the original first)
+ * 2. Or copy the agent-related code into the existing route.ts
+ * 3. Make sure OPENAI_AGENT_ID is set in .env.local
+ */
+
+import { NextRequest, NextResponse } from 'next/server'
+import { getSupabaseServerClient } from '@/lib/supabase-server'
+import OpenAI from 'openai'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+})
+
+// ... (keep all helper functions: searchSECFiling, resolveCompanyToCIK)
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { query } = body
+
+    if (!query || typeof query !== 'string') {
+      return NextResponse.json({ error: 'Query is required' }, { status: 400 })
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: 'OpenAI API key not configured' },
+        { status: 500 }
+      )
+    }
+
+    // Check if Agent ID is configured - use Agent SDK if available
+    const agentId = process.env.OPENAI_AGENT_ID
+    
+    let parsedData: {
+      company: string
+      filing_type: string
+      year: number | null
+    }
+
+    if (agentId) {
+      // Use Agent SDK
+      try {
+        // Create a run with the agent
+        const run = await openai.beta.agents.createRun({
+          agent_id: agentId,
+          additional_messages: [
+            {
+              role: 'user',
+              content: query,
+            },
+          ],
+        })
+
+        // Wait for the run to complete
+        let currentRun = run
+        let attempts = 0
+        const maxAttempts = 30 // 30 seconds max wait
+
+        while (
+          currentRun.status !== 'completed' &&
+          currentRun.status !== 'failed' &&
+          attempts < maxAttempts
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 1000)) // Wait 1 second
+          currentRun = await openai.beta.agents.retrieveRun(agentId, run.id)
+          attempts++
+        }
+
+        if (currentRun.status === 'failed') {
+          console.error('Agent run failed:', currentRun)
+          return NextResponse.json(
+            { error: 'Agent run failed. Please try again.' },
+            { status: 500 }
+          )
+        }
+
+        // Extract the agent's response
+        const messages = currentRun.messages || []
+        const lastMessage = messages[messages.length - 1]
+        const responseContent =
+          typeof lastMessage?.content === 'string'
+            ? lastMessage.content
+            : JSON.stringify(lastMessage?.content || {})
+
+        // Parse JSON from response
+        try {
+          // Try to extract JSON from the response (might be wrapped in markdown)
+          const jsonMatch = responseContent.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            parsedData = JSON.parse(jsonMatch[0])
+          } else {
+            throw new Error('No JSON found in response')
+          }
+        } catch (parseError) {
+          console.error('Error parsing agent response:', parseError)
+          return NextResponse.json(
+            {
+              error:
+                'Agent returned invalid format. Please check agent configuration.',
+            },
+            { status: 500 }
+          )
+        }
+      } catch (agentError: any) {
+        console.error('Agent SDK error:', agentError)
+        return NextResponse.json(
+          {
+            error: 'Failed to call agent',
+            details: agentError.message,
+          },
+          { status: 500 }
+        )
+      }
+    } else {
+      // Fallback to Chat API (current implementation)
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a financial filing search assistant. Extract information from user queries about SEC filings.
+
+Extract:
+- Company name or ticker symbol (e.g., "Apple", "AAPL", "Microsoft", "MSFT")
+- Filing type: "10-K" for annual reports, "10-Q" for quarterly reports, or other SEC form types
+- Year: the filing year if specified, or null if not specified
+
+Return a JSON object with: company, filing_type, year
+
+Examples:
+- "Find Apple's 2023 10-K annual report" -> {"company": "Apple", "filing_type": "10-K", "year": 2023}
+- "Search Microsoft quarterly 2024" -> {"company": "Microsoft", "filing_type": "10-Q", "year": 2024}
+- "Get Tesla latest annual report" -> {"company": "Tesla", "filing_type": "10-K", "year": null}
+- "Find GOOGL 10-K 2022" -> {"company": "GOOGL", "filing_type": "10-K", "year": 2022}`,
+          },
+          {
+            role: 'user',
+            content: query,
+          },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+      })
+
+      const responseContent = completion.choices[0]?.message?.content
+      if (!responseContent) {
+        return NextResponse.json(
+          { error: 'Failed to parse query' },
+          { status: 500 }
+        )
+      }
+
+      try {
+        parsedData = JSON.parse(responseContent)
+      } catch (error) {
+        console.error('Error parsing OpenAI response:', error)
+        return NextResponse.json(
+          { error: 'Failed to parse query. Please try rephrasing your request.' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Continue with company resolution and filing search...
+    // (rest of the code remains the same)
+  } catch (error: any) {
+    console.error('Error in /api/filings/search:', error)
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
